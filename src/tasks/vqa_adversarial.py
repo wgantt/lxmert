@@ -165,20 +165,12 @@ class VQA:
         for i, datum_tuple in enumerate(loader):
             # TODO: adversarially transform inputs
             ques_id, feats, boxes, sent, target = datum_tuple
+            feats, boxes, target = feats.cuda(), boxes.cuda(), target.cuda()
+            adversary = GradientAttack(lambda x: self.model(x, boxes, sent), loss_fn=self.bce_loss)
+            feats_adv = adversary.perturb(feats, target)
             with torch.no_grad():
-
-                x = (feats, boxes, sent)
-
-                # TODO: should this be moved outside of the dataloader loop?
-                adversary = FastFeatureAttack(
-                    (lambda x: self.model(x[0], x[1], x[2])),
-                    loss_fn=self.bce_loss)
-
-                xadv = adversary.perturb(x, target)
-                feats_adv, _, sent_adv = xadv
-                
-                feats, boxes = feats.cuda(), boxes.cuda()
-                logit = self.model(feats_adv, boxes, sent_adv)
+                feats_adv = feats_adv.cuda()
+                logit = self.model(feats_adv, boxes, sent)
                 score, label = logit.max(1)
                 for qid, l in zip(ques_id, label.cpu().numpy()):
                     ans = dset.label2ans[l]
@@ -262,7 +254,7 @@ if __name__ == "__main__":
             # Since part of valididation data are used in pre-training/fine-tuning,
             # only validate on the minival set.
             result = vqa.adversarial_evaluate(
-                get_data_tuple('minival', bs=950,
+                get_data_tuple('minival', bs=100,
                                shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'minival_predict.json')
             )
