@@ -15,7 +15,7 @@ from tasks.vqa_model import VQAModel
 from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
 
 # Import any attacks here
-from advertorch.attacks import Attack, GradientAttack
+from advertorch.attacks import Attack, GradientAttack, FastFeatureAttack
 
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
@@ -166,8 +166,19 @@ class VQA:
             # TODO: adversarially transform inputs
             ques_id, feats, boxes, sent, target = datum_tuple
             with torch.no_grad():
+
+                x = (feats, boxes, sent)
+
+                # TODO: should this be moved outside of the dataloader loop?
+                adversary = FastFeatureAttack(
+                    (lambda x: self.model(x[0], x[1], x[2])),
+                    loss_fn=self.bce_loss)
+
+                xadv = adversary.perturb(x, target)
+                feats_adv, _, sent_adv = xadv
+                
                 feats, boxes = feats.cuda(), boxes.cuda()
-                logit = self.model(feats, boxes, sent)
+                logit = self.model(feats_adv, boxes, sent_adv)
                 score, label = logit.max(1)
                 for qid, l in zip(ques_id, label.cpu().numpy()):
                     ans = dset.label2ans[l]
@@ -242,7 +253,7 @@ if __name__ == "__main__":
     if args.test is not None:
         args.fast = args.tiny = False       # Always loading all data in test
         if 'test' in args.test:
-            vqa.predict(
+            vqa.adversarial_predict(
                 get_data_tuple(args.test, bs=950,
                                shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'test_predict.json')
@@ -250,7 +261,7 @@ if __name__ == "__main__":
         elif 'val' in args.test:    
             # Since part of valididation data are used in pre-training/fine-tuning,
             # only validate on the minival set.
-            result = vqa.evaluate(
+            result = vqa.adversarial_evaluate(
                 get_data_tuple('minival', bs=950,
                                shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'minival_predict.json')
