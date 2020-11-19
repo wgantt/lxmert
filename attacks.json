@@ -1,17 +1,35 @@
 {
-    "attacksToUse": ["GradientAttack", "FastFeatureAttack"],
+    "attacksToUse": ["MomentumIterativeAttack"],
     "attacks": {
+	"FastFeatureAttack": {
+	    "eps": 0.3,
+	    "eps_iter": 0.05,
+	    "nb_iter": 10,
+	    "clip_min": 0.0,
+	    "clip_max": 1.0
+	},
+        "GradientSignAttack": {
+            "eps": 0.3,
+	    "clip_min": 0.0,
+	    "clip_max": 1.0,
+	    "targeted": false
+
+        },
 	"GradientAttack": {
 	    "eps": 0.3,
 	    "clip_min": 0.0,
 	    "clip_max": 1.0,
 	    "targeted": false
 	},
-	"FastFeatureAttack": {
+        "MomentumIterativeAttack": {
+            "eps": 0.3,
+            "nb_iter": 5,
+            "eps_iter": 0.01
+        },
+	"PGDAttack": {
 	    "eps": 0.3,
-	    "eps_iter": 0.05,
-	    "nb_iter": 10,
-	    "rand_init": true,
+	    "eps_iter": 0.01,
+	    "nb_iter": 5,
 	    "clip_min": 0.0,
 	    "clip_max": 1.0
 	}

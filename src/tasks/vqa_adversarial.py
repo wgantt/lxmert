@@ -168,7 +168,8 @@ class VQA:
         self.model.eval()
         dset, loader, evaluator = eval_tuple
         quesid2ans = {}
-        for i, datum_tuple in enumerate(loader):
+        sim_trace = [] # Track avg cos similarity across batches
+        for i, datum_tuple in enumerate(tqdm(loader)):
             ques_id, feats, boxes, sent, target = datum_tuple
             feats, boxes, target = feats.cuda(), boxes.cuda(), target.cuda()
 
@@ -183,6 +184,11 @@ class VQA:
             # Perturb feats using adversary
             feats_adv = adversary.perturb(feats, target)
 
+            # Compute average cosine similarity between true
+            # and perturbed features
+            sim_trace.append(self.avg_cosine_sim(feats, feats_adv))
+
+            # Compute prediction on adversarial examples
             with torch.no_grad():
                 feats_adv = feats_adv.cuda()
                 logit = self.model(feats_adv, boxes, sent)
@@ -192,6 +198,7 @@ class VQA:
                     quesid2ans[qid.item()] = ans
         if dump is not None:
             evaluator.dump_result(quesid2ans, dump)
+        print(f"Average cosine similarity across batches: {torch.mean(torch.Tensor(sim_trace))}")
         return quesid2ans
 
     def evaluate(self, eval_tuple: DataTuple, dump=None):
@@ -204,27 +211,9 @@ class VQA:
         quesid2ans = self.adversarial_predict(eval_tuple, dump, attack_name, attack_params)
         return eval_tuple.evaluator.evaluate(quesid2ans)
 
-    def perturb(self, data_tuple: DataTuple, attack: Attack, feature_based=True) -> DataTuple:
-        """Perturb inputs using a specified adversarial attack
-
-        :param eval_tuple: The data to perturb
-        :param attack: The attack used for the perturbation
-        :param feature_based: Indicates whether the attack targets features.
-               If false, the attack targets the question instead. Currently
-               not used.
-        :return: The perturbed data
-
-        TODO: add generic dict param for attack-specific constructor arguments
-        """
-        # Construct the adversary
-        adversary = attack(self.model, loss_fn=self.bce_loss)
-
-        # Perturb the data
-        # TODO: It should be possible to perturb only *some* of the inputs,
-        # but I'm not really sure how
-        ques_id, feats, boxes, sent, target = data_tuple
-        adv_input = adversary.perturb((feats, boxes, sent), target)
-        return adv_input
+    def avg_cosine_sim(self, feats: torch.Tensor, feats_adv: torch.Tensor):
+        """Computes the average cosine similarity between true and adversarial examples"""
+        return nn.functional.cosine_similarity(feats, feats_adv, dim=-1).mean()
 
     @staticmethod
     def oracle_score(data_tuple):
