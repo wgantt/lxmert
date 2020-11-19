@@ -2,7 +2,11 @@
 # Copyleft 2019 project LXRT.
 
 import os
+import os.path
+from os import path
 import collections
+import json
+import importlib
 
 import torch
 import torch.nn as nn
@@ -16,6 +20,8 @@ from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
 
 # Import any attacks here
 from advertorch.attacks import *
+# I have to do the following to instantiate a class from a string... it's a bit clunky.
+advertorch_module = importlib.import_module('advertorch.attacks')
 
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
@@ -150,7 +156,7 @@ class VQA:
             evaluator.dump_result(quesid2ans, dump)
         return quesid2ans
 
-    def adversarial_predict(self, eval_tuple: DataTuple, dump=None):
+    def adversarial_predict(self, eval_tuple: DataTuple, dump=None, attack_name='GradientAttack', attack_params={}):
         """
         Predict the answers to questions in a data split, but
         using a specified adversarial attack on the inputs.
@@ -163,11 +169,20 @@ class VQA:
         dset, loader, evaluator = eval_tuple
         quesid2ans = {}
         for i, datum_tuple in enumerate(loader):
-            # TODO: adversarially transform inputs
             ques_id, feats, boxes, sent, target = datum_tuple
             feats, boxes, target = feats.cuda(), boxes.cuda(), target.cuda()
-            adversary = GradientAttack(lambda x: self.model(x, boxes, sent), loss_fn=self.bce_loss)
+
+            # Create adversary from given class name and parameters
+            AdversaryClass_ = getattr(advertorch_module, attack_name)
+            adversary = AdversaryClass_(
+                lambda x: self.model(x, boxes, sent),
+                loss_fn=self.bce_loss,
+                **attack_params
+            )
+
+            # Perturb feats using adversary
             feats_adv = adversary.perturb(feats, target)
+
             with torch.no_grad():
                 feats_adv = feats_adv.cuda()
                 logit = self.model(feats_adv, boxes, sent)
@@ -184,9 +199,9 @@ class VQA:
         quesid2ans = self.predict(eval_tuple, dump)
         return eval_tuple.evaluator.evaluate(quesid2ans)
 
-    def adversarial_evaluate(self, eval_tuple: DataTuple, dump=None):
+    def adversarial_evaluate(self, eval_tuple: DataTuple, dump=None, attack_name='GradientAttack', attack_params={}):
         """Evaluate model on adversarial inputs"""
-        quesid2ans = self.adversarial_predict(eval_tuple, dump)
+        quesid2ans = self.adversarial_predict(eval_tuple, dump, attack_name, attack_params)
         return eval_tuple.evaluator.evaluate(quesid2ans)
 
     def perturb(self, data_tuple: DataTuple, attack: Attack, feature_based=True) -> DataTuple:
@@ -241,24 +256,52 @@ if __name__ == "__main__":
     if args.load is not None:
         vqa.load(args.load)
 
+    # Load adversarial json (if it exists)
+    adversarial_dict = None
+    adversarial_dict_path = 'attacks.json'
+    if path.exists(adversarial_dict_path):
+        with open(adversarial_dict_path) as f:
+            print('adversarial_dict found')
+            adversarial_dict = json.load(f)
+    print('Loaded adversarial dict:', adversarial_dict)
+            
     # Test or Train
     if args.test is not None:
         args.fast = args.tiny = False       # Always loading all data in test
         if 'test' in args.test:
-            vqa.adversarial_predict(
-                get_data_tuple(args.test, bs=950,
-                               shuffle=False, drop_last=False),
-                dump=os.path.join(args.output, 'test_predict.json')
-            )
+            if adversarial_dict is not None:
+                for attack in adversarial_dict['attacksToUse']:
+                    vqa.adversarial_predict(
+                        get_data_tuple(args.test, bs=950,
+                                       shuffle=False, drop_last=False),
+                        dump=os.path.join(args.output, 'test_predict.json'),
+                        attack_name=attack, attack_params=adversarial_dict['attacks'][attack]
+                    )
+            else:
+                vqa.predict(
+                    get_data_tuple(args.test, bs=950,
+                                   shuffle=False, drop_last=False),
+                    dump=os.path.join(args.output, 'test_predict.json')
+                )
         elif 'val' in args.test:    
             # Since part of valididation data are used in pre-training/fine-tuning,
             # only validate on the minival set.
-            result = vqa.adversarial_evaluate(
-                get_data_tuple('minival', bs=100,
-                               shuffle=False, drop_last=False),
-                dump=os.path.join(args.output, 'minival_predict.json')
-            )
-            print(result)
+            if adversarial_dict is not None:
+                for attack in adversarial_dict['attacksToUse']:
+                    result = vqa.adversarial_evaluate(
+                        get_data_tuple('minival', bs=100,
+                                       shuffle=False, drop_last=False),
+                        dump=os.path.join(args.output, 'minival_predict.json'),
+                        attack_name=attack, attack_params=adversarial_dict['attacks'][attack]
+                    )
+                    print(attack, ': ', result)
+            else:
+                result = vqa.evaluate(
+                    get_data_tuple('minival', bs=100,
+                                   shuffle=False, drop_last=False),
+                    dump=os.path.join(args.output, 'minival_predict.json')
+                )
+                print(result)
         else:
             assert False, "No such test option for %s" % args.test
     else:

@@ -1,0 +1,19 @@
+{
+    "attacksToUse": ["GradientAttack", "FastFeatureAttack"],
+    "attacks": {
+	"GradientAttack": {
+	    "eps": 0.3,
+	    "clip_min": 0.0,
+	    "clip_max": 1.0,
+	    "targeted": false
+	},
+	"FastFeatureAttack": {
+	    "eps": 0.3,
+	    "eps_iter": 0.05,
+	    "nb_iter": 10,
+	    "rand_init": true,
+	    "clip_min": 0.0,
+	    "clip_max": 1.0
+	}
+    }
+}
