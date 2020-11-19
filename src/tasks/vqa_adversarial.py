@@ -15,7 +15,7 @@ from tasks.vqa_model import VQAModel
 from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
 
 # Import any attacks here
-from advertorch.attacks import Attack, GradientAttack, FastFeatureAttack
+from advertorch.attacks import *
 
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
