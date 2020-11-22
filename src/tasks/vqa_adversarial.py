@@ -7,6 +7,7 @@ from os import path
 import collections
 import json
 import importlib
+import random
 
 import torch
 import torch.nn as nn
@@ -86,19 +87,42 @@ class VQA:
         self.output = args.output
         os.makedirs(self.output, exist_ok=True)
 
-    def train(self, train_tuple, eval_tuple):
+    def train(self, train_tuple, eval_tuple, adversarial=False, adv_batch_prob=0.0, attack_name=None, attack_params={}):
         dset, loader, evaluator = train_tuple
         iter_wrapper = (lambda x: tqdm(x, total=len(loader))) if args.tqdm else (lambda x: x)
+        use_adv_batch = False
 
         best_valid = 0.
+        
         for epoch in range(args.epochs):
             quesid2ans = {}
+            # Count the number of batches that were adversarially perturbed
+            n_adv_batches = 0
             for i, (ques_id, feats, boxes, sent, target) in iter_wrapper(enumerate(loader)):
 
                 self.model.train()
                 self.optim.zero_grad()
 
                 feats, boxes, target = feats.cuda(), boxes.cuda(), target.cuda()
+
+                # If doing adversarial training, perturb input features
+                # with probability adv_batch_prob
+                if adversarial:
+                    rand = random.uniform(0,1)
+                    use_adv_batch = rand <= adv_batch_prob
+                if use_adv_batch:
+                    # Create adversary from given class name and parameters
+                    n_adv_batches += 1
+                    AdversaryClass_ = getattr(advertorch_module, attack_name)
+                    adversary = AdversaryClass_(
+                        lambda x: self.model(x, boxes, sent),
+                        loss_fn=self.bce_loss,
+                        **attack_params
+                        )
+                    # Perturb feats using adversary
+                    feats = adversary.perturb(feats, target)
+               
+
                 logit = self.model(feats, boxes, sent)
                 assert logit.dim() == target.dim() == 2
                 loss = self.bce_loss(logit, target)
@@ -113,7 +137,8 @@ class VQA:
                     ans = dset.label2ans[l]
                     quesid2ans[qid.item()] = ans
 
-            log_str = "\nEpoch %d: Train %0.2f\n" % (epoch, evaluator.evaluate(quesid2ans) * 100.)
+            log_str = "\nEpoch %d: Train %0.2f\n" % (epoch, evaluator.evaluate(quesid2ans) * 100.) + \
+                        "Epoch %d: Num adversarial batches %d / %d\n" % (epoch, n_adv_batches, i+1)
 
             if self.valid_tuple is not None:  # Do Validation
                 valid_score = self.evaluate(eval_tuple)
@@ -300,6 +325,11 @@ if __name__ == "__main__":
             print("Valid Oracle: %0.2f" % (vqa.oracle_score(vqa.valid_tuple) * 100))
         else:
             print("DO NOT USE VALIDATION")
-        vqa.train(vqa.train_tuple, vqa.valid_tuple)
-
-
+        print(f"attack: {args.attackName}")
+        attack_params = adversarial_dict['attacks'][args.attackName] if args.attackName else {}
+        print(f"attack params: {attack_params}")
+        vqa.train(vqa.train_tuple, vqa.valid_tuple, \
+                  adversarial=args.trainAdversarial, \
+                  adv_batch_prob=args.adv_batch_prob, \
+                  attack_name=args.attackName, \
+                  attack_params=attack_params)

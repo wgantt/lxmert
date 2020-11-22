@@ -88,6 +88,11 @@ def parse_args():
     parser.add_argument("--multiGPU", action='store_const', default=False, const=True)
     parser.add_argument("--numWorkers", dest='num_workers', default=0)
 
+    # Adversarial training
+    parser.add_argument("--trainAdversarial", action='store_const', default=False, const=True)
+    parser.add_argument("--adversarialBatchProb", dest='adv_batch_prob', default=0.15, type=float)
+    parser.add_argument("--attackName", type=str)
+
     # Parse the arguments.
     args = parser.parse_args()
 
