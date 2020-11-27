@@ -24,3 +24,8 @@ momentum,sign,0.4491,0.6613
 momentum,gradient,0.4491,0.7288
 momentum,pgd,0.4490,0.7040
 momentum,momentum,0.4491,0.7273
+mix,none,,0.700,,
+mix,sign,0.5200,0.6615
+mix,gradient,0.6588,0.7288
+mix,pgd,0.4125,0.7034
+mix,momentum,0.4382,0.7279
